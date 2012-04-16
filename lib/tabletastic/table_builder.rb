@@ -1,4 +1,5 @@
 require File.join(File.dirname(__FILE__), 'table_field')
+require File.join(File.dirname(__FILE__), 'row_builder')
 
 module Tabletastic
   class TableBuilder
@@ -10,6 +11,7 @@ module Tabletastic
     def initialize(collection, klass, template)
       @collection, @klass, @template = collection, klass, template
       @table_fields = []
+      @footer = nil
     end
 
     # builds up the fields that the table will include,
@@ -31,6 +33,24 @@ module Tabletastic
       end
       action_cells(options[:actions], options[:action_prefix], options[:non_remote])
       ["\n", head, "\n", body, "\n"].join("").html_safe
+    end
+
+    # Add an extra row at the bottem. Needs to be called before +data+. This
+    # way one can add a row with grand totals, for instance.
+    #
+    # An example
+    #
+    #   table_for @products do |t|
+    #     t.footer do |f|
+    #       f.cell
+    #       f.cell { @products.total_count }
+    #       f.cell { @products.total_price }
+    #     end
+    #     t.data(:name, :count, :price)
+    #   end
+    def footer(opts = {}, &block) # :yields: RowBuilder
+      @footer_opts = opts
+      @footer_blk = block # Postpone rendering, so cycle('odd', 'even') doesn't get confused
     end
 
     # individually specify a column, which will build up the header,
@@ -76,12 +96,24 @@ module Tabletastic
 
     def body
       content_tag(:tbody) do
-        @collection.inject("\n") do |rows, record|
+        body = @collection.inject("\n") do |rows, record|
           rowclass = @template.cycle("odd","even")
           rows += @template.content_tag_for(:tr, record, :class => rowclass) do
             cells_for_row(record)
           end + "\n"
-        end.html_safe
+        end.html_safe 
+
+        if @footer_blk
+          opts = @footer_opts
+          rowclass = @template.cycle("odd","even")
+          html_class = Array(opts[:class])
+          html_class << rowclass 
+          html_class << 'footer'
+          opts[:class] = html_class
+          body << content_tag(:tr, opts) { @footer_blk.call(RowBuilder.new(@template)).render.html_safe }
+        end
+
+        body
       end
     end
 
